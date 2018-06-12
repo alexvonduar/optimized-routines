@@ -1,22 +1,20 @@
 /*
- *  main.c
+ * main.c
  *
- *  Copyright (C) 1999-2015, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 1999-2015, Arm Limited.
+ * SPDX-License-Identifier: Apache-2.0
  *
- *  Licensed under the Apache License, Version 2.0 (the "License"); you may
- *  not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *  http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- *
- *  This file is part of the Optimized Routines project
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #include <assert.h>
@@ -212,9 +210,8 @@ void dofile(FILE *fp, int translating) {
              */
             uint32 ops[8], result[8];
             int got_op = 0; /* &1 for got_op1, &4 for got_op3 etc. */
-            Testable *f;
+            Testable *f = 0;
             char *q, *r;
-            int i;
             int got_result = 0, got_errno_in = 0;
 
             for (q = strtok(p, " \t"); q; q = strtok(NULL, " \t")) {

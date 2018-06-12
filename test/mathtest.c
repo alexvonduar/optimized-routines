@@ -1,22 +1,20 @@
 /*
- *  mathtest.c - test rig for mathlib
+ * mathtest.c - test rig for mathlib
  *
- *  Copyright (C) 1998-2015, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 1998-2015, Arm Limited.
+ * SPDX-License-Identifier: Apache-2.0
  *
- *  Licensed under the Apache License, Version 2.0 (the "License"); you may
- *  not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *  http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- *
- *  This file is part of the Optimized Routines project
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #include <assert.h>
@@ -29,13 +27,10 @@
 #include <errno.h>
 #include <limits.h>
 #include <fenv.h>
-#include <arm_math.h>
+#include "mathlib.h"
 
-#ifdef __GNUC__
-#  include <endian.h>
-#  ifndef math_errhandling
-#    define math_errhandling MATH_ERREXCEPT
-#  endif
+#ifndef math_errhandling
+# define math_errhandling 0
 #endif
 
 #ifdef __cplusplus
@@ -57,12 +52,12 @@
 _Pragma(STR(import IMPORT_SYMBOL))
 #endif
 
-EXTERN_C int ARM__ieee754_rem_pio2(double, double *);
-#include "../math/rredf.h"
+EXTERN_C int __ieee754_rem_pio2(double, double *);
+#include "../math/single/rredf.h"
 
 int sp_rem_pio2(float x, float *y) {
   int q;
-  *y = ARM__mathlib_rredf(x, &q);
+  *y = __mathlib_rredf(x, &q);
   return q;
 }
 
@@ -71,8 +66,6 @@ int quiet = 0;
 
 #define EXTRABITS (12)
 #define ULPUNIT (1<<EXTRABITS)
-
-EXTERN_C unsigned int __ieee_status(unsigned int mask,unsigned int flags);
 
 typedef int (*test) (void);
 
@@ -216,15 +209,15 @@ int is_complex_rettype(int rettype) {
 #define ABSLOWERBOUND 0x4000000000000000LL
 #define PLUSMINUSPIO2 0x1000000000000000LL
 
-#ifndef TEST_LOCAL_LIBM
-#define ARM_PREFIX(x) ARM__##x
-#else
 #define ARM_PREFIX(x) x
-#endif
 
 #define TFUNC(arg,ret,name,tolerance) { t_func, arg, ret, (void*)&name, m_none, tolerance, #name }
 #define TFUNCARM(arg,ret,name,tolerance) { t_func, arg, ret, (void*)& ARM_PREFIX(name), m_none, tolerance, #name }
 #define MFUNC(arg,ret,name,tolerance) { t_macro, arg, ret, NULL, m_##name, tolerance, #name }
+
+/* sincosf wrappers for easier testing.  */
+static float sincosf_sinf(float x) { float s,c; sincosf(x, &s, &c); return s; }
+static float sincosf_cosf(float x) { float s,c; sincosf(x, &s, &c); return c; }
 
 test_func tfuncs[] = {
     /* trigonometric */
@@ -242,8 +235,10 @@ test_func tfuncs[] = {
     TFUNC(at_s,rt_s, atanf, 4*ULPUNIT),
     TFUNC(at_s2,rt_s, atan2f, 4*ULPUNIT),
     TFUNCARM(at_s,rt_s, tanf, 4*ULPUNIT),
-    TFUNCARM(at_s,rt_s, sinf, 4*ULPUNIT),
-    TFUNCARM(at_s,rt_s, cosf, 4*ULPUNIT),
+    TFUNCARM(at_s,rt_s, sinf, 3*ULPUNIT/4),
+    TFUNCARM(at_s,rt_s, cosf, 3*ULPUNIT/4),
+    TFUNCARM(at_s,rt_s, sincosf_sinf, 3*ULPUNIT/4),
+    TFUNCARM(at_s,rt_s, sincosf_cosf, 3*ULPUNIT/4),
 
     /* hyperbolic */
     TFUNC(at_d, rt_d, atanh, 4*ULPUNIT),
@@ -261,28 +256,28 @@ test_func tfuncs[] = {
     TFUNC(at_s,rt_s, coshf, 4*ULPUNIT),
 
     /* exponential and logarithmic */
-    TFUNC(at_d,rt_d, log, 3*ULPUNIT),
+    TFUNC(at_d,rt_d, log, 3*ULPUNIT/4),
     TFUNC(at_d,rt_d, log10, 3*ULPUNIT),
-    TFUNC(at_d,rt_d, log2, 3*ULPUNIT),
+    TFUNC(at_d,rt_d, log2, 3*ULPUNIT/4),
     TFUNC(at_d,rt_d, log1p, 2*ULPUNIT),
-    TFUNC(at_d,rt_d, exp, 3*ULPUNIT),
-    TFUNC(at_d,rt_d, exp2, 3*ULPUNIT),
+    TFUNC(at_d,rt_d, exp, 3*ULPUNIT/4),
+    TFUNC(at_d,rt_d, exp2, 3*ULPUNIT/4),
     TFUNC(at_d,rt_d, expm1, ULPUNIT),
-    TFUNCARM(at_s,rt_s, logf, 3*ULPUNIT),
+    TFUNCARM(at_s,rt_s, logf, ULPUNIT),
     TFUNC(at_s,rt_s, log10f, 3*ULPUNIT),
-    TFUNCARM(at_s,rt_s, log2f, 3*ULPUNIT),
+    TFUNCARM(at_s,rt_s, log2f, ULPUNIT),
     TFUNC(at_s,rt_s, log1pf, 2*ULPUNIT),
-    TFUNCARM(at_s,rt_s, expf, 3*ULPUNIT),
-    TFUNCARM(at_s,rt_s, exp2f, 3*ULPUNIT),
+    TFUNCARM(at_s,rt_s, expf, 3*ULPUNIT/4),
+    TFUNCARM(at_s,rt_s, exp2f, 3*ULPUNIT/4),
     TFUNC(at_s,rt_s, expm1f, ULPUNIT),
 
     /* power */
-    TFUNC(at_d2,rt_d, pow, 16*ULPUNIT),
+    TFUNC(at_d2,rt_d, pow, 3*ULPUNIT/4),
     TFUNC(at_d,rt_d, sqrt, ULPUNIT/2),
     TFUNC(at_d,rt_d, cbrt, 2*ULPUNIT),
     TFUNC(at_d2, rt_d, hypot, 4*ULPUNIT),
 
-    TFUNCARM(at_s2,rt_s, powf, 16*ULPUNIT),
+    TFUNCARM(at_s2,rt_s, powf, ULPUNIT),
     TFUNC(at_s,rt_s, sqrtf, ULPUNIT/2),
     TFUNC(at_s,rt_s, cbrtf, 2*ULPUNIT),
     TFUNC(at_s2, rt_s, hypotf, 4*ULPUNIT),
@@ -413,7 +408,7 @@ char *errors[] = {
 static int verbose, fo, strict;
 
 /* state toggled by random=on / random=off */
-static int random = 0;
+static int randomstate;
 
 /* Canonify a double NaN: SNaNs all become 7FF00000.00000001 and QNaNs
  * all become 7FF80000.00000001 */
@@ -762,7 +757,7 @@ testdetail parsetest(char *testbuf, testdetail oldtest) {
         testbuf++;
     }
 
-    ret.random = random;
+    ret.random = randomstate;
 
     ret.in_err = 0;
     ret.in_err_limit = e_number_of_errnos;
@@ -776,7 +771,7 @@ testdetail parsetest(char *testbuf, testdetail oldtest) {
         k = find(p, keywords, sizeof(keywords));
         switch (k) {
         case k_random:
-            random = (!strcmp(q, "on"));
+            randomstate = (!strcmp(q, "on"));
             ret.comment = 1;
             return ret;                /* otherwise ignore this line */
         case k_func:
@@ -1027,11 +1022,7 @@ int runtest(testdetail t) {
         return test_invalid;
 
     /* Set IEEE status to mathlib-normal */
-#ifdef __GNUC__
     feclearexcept(FE_ALL_EXCEPT);
-#else
-    __ieee_status(0xC01F1F, 0x000000);
-#endif
 
     /* Deal with operands */
 #define DO_DOP(arg,op) arg.i[dmsd] = t.op[0]; arg.i[dlsd] = t.op[1]
@@ -1124,7 +1115,7 @@ int runtest(testdetail t) {
         case m_islessgreaterf: intres = islessgreater(s_arg1.f, s_arg2.f); break;
         case m_isunorderedf: intres = isunordered(s_arg1.f, s_arg2.f); break;
 
-        case m_rred:  intres = 3 & ARM__ieee754_rem_pio2(d_arg1.f, d_res.da); break;
+        case m_rred:  intres = 3 & __ieee754_rem_pio2(d_arg1.f, d_res.da); break;
         case m_rredf: intres = 3 & sp_rem_pio2(s_arg1.f, s_res.da); break;
         default:
             printf("unhandled macro: %s\n",t.func->name);
@@ -1148,15 +1139,7 @@ int runtest(testdetail t) {
      * complex functions are hard to get exactly right and we don't
      * have to anyway (C99 annex G is only informative). */
     if (!(is_complex_argtype(t.func->argtype) || is_complex_rettype(t.func->rettype))) {
-#ifdef __GNUC__
-        status = 0;
-        if(fetestexcept(FE_INVALID)) status |= 0x01;
-        if(fetestexcept(FE_DIVBYZERO)) status |= 0x02;
-        if(fetestexcept(FE_OVERFLOW)) status |= 0x04;
-        if(fetestexcept(FE_UNDERFLOW)) status |= 0x08;
-#else
-        status = __ieee_status(0, 0) & (FE_INVALID|FE_DIVBYZERO|FE_OVERFLOW|FE_UNDERFLOW);
-#endif /* __GNUC__ */
+        status = fetestexcept(FE_INVALID|FE_DIVBYZERO|FE_OVERFLOW|FE_UNDERFLOW);
         if ((status|t.maybestatus) != (t.status|t.maybestatus)) {
             if (quiet) failtext[0]='x';
             else {
@@ -1381,6 +1364,12 @@ int runtest(testdetail t) {
                 }
             }
         } else {
+            if(is_complex_rettype(t.func->rettype))
+                /*
+                 * Complex functions are not fully supported,
+                 * this is unreachable, but prevents warnings.
+                 */
+                abort();
             /*
              * The test case data has provided the result in
              * exactly the output precision. Therefore we must
@@ -1564,7 +1553,6 @@ int main(int ac, char **av) {
     char **files;
     int i, nfiles = 0;
     dbl d;
-    int dmsd_c;
 
 #ifdef MICROLIB
     /*
@@ -1596,12 +1584,6 @@ int main(int ac, char **av) {
     }
 #endif
 
-#if defined __BIG_ENDIAN && (!defined(__GNUC__) || __BYTE_ORDER==__BIG_ENDIAN)
-    dmsd_c = 0;
-#else
-    dmsd_c = 1;
-#endif
-
     /* Sort tfuncs */
     qsort(tfuncs, sizeof(tfuncs)/sizeof(test_func), sizeof(test_func), &compare_tfuncs);
 
@@ -1619,7 +1601,7 @@ int main(int ac, char **av) {
      */
     d.i[0] = d.i[1] = 0x11111111;/* a random +ve number */
     d.f /= d.f;                    /* must now be one */
-    if (d.i[dmsd] == 0 || dmsd_c != dmsd) {
+    if (d.i[dmsd] == 0) {
         fprintf(stderr, "YIKES! Compiler and runtime disagree on endianness"
                 " of `double'. Bailing out\n");
         return 1;

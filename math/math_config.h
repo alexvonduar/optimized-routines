@@ -1,28 +1,25 @@
 /*
- *  Configuration for math routines.
+ * Configuration for math routines.
  *
- *  Copyright (C) 2017, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2017, Arm Limited.
+ * SPDX-License-Identifier: Apache-2.0
  *
- *  Licensed under the Apache License, Version 2.0 (the "License"); you may
- *  not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *  http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- *
- *  This file is part of the Optimized Routines project
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #ifndef _MATH_CONFIG_H
 #define _MATH_CONFIG_H
 
-#include "arm_math.h"
 #include <math.h>
 #include <stdint.h>
 
@@ -39,33 +36,51 @@
 # define WANT_ERRNO_UFLOW (WANT_ROUNDING && WANT_ERRNO)
 #endif
 
-#ifdef __aarch64__
-# include <arm_neon.h>
+/* Compiler can inline round as a single instruction.  */
+#ifndef HAVE_FAST_ROUND
+# if __aarch64__
+#   define HAVE_FAST_ROUND 1
+# else
+#   define HAVE_FAST_ROUND 0
+# endif
+#endif
 
-/* ACLE intrinsics for frintn and fcvtns instructions.  */
+/* Compiler can inline lround, but not (long)round(x).  */
+#ifndef HAVE_FAST_LROUND
+# if __aarch64__ && (100*__GNUC__ + __GNUC_MINOR__) >= 408 && __NO_MATH_ERRNO__
+#   define HAVE_FAST_LROUND 1
+# else
+#   define HAVE_FAST_LROUND 0
+# endif
+#endif
+
+/* Compiler can inline fma as a single instruction.  */
+#ifndef HAVE_FAST_FMA
+# ifdef FP_FAST_FMA
+#   define HAVE_FAST_FMA 1
+# else
+#   define HAVE_FAST_FMA 0
+# endif
+#endif
+
+#if HAVE_FAST_ROUND
 # define TOINT_INTRINSICS 1
 
 static inline double_t
 roundtoint (double_t x)
 {
-  return vget_lane_f64 (vrndn_f64 (vld1_f64 (&x)), 0);
+  return round (x);
 }
 
 static inline uint64_t
 converttoint (double_t x)
 {
-  return vcvtnd_s64_f64 (x);
+# if HAVE_FAST_LROUND
+  return lround (x);
+# else
+  return (long) round (x);
+# endif
 }
-#endif
-
-#ifndef TOINT_INTRINSICS
-# define TOINT_INTRINSICS 0
-#endif
-#ifndef TOINT_RINT
-# define TOINT_RINT 0
-#endif
-#ifndef TOINT_SHIFT
-# define TOINT_SHIFT 1
 #endif
 
 static inline uint32_t
@@ -124,19 +139,110 @@ issignalingf_inline (float x)
   return 2 * (ix ^ 0x00400000) > 2u * 0x7fc00000;
 }
 
+static inline int
+issignaling_inline (double x)
+{
+  uint64_t ix = asuint64 (x);
+  if (!IEEE_754_2008_SNAN)
+    return (ix & 0x7ff8000000000000) == 0x7ff8000000000000;
+  return 2 * (ix ^ 0x0008000000000000) > 2 * 0x7ff8000000000000ULL;
+}
+
+/* Force the evaluation of a floating-point expression for its side-effect.  */
+#if __aarch64__ && __GNUC__
+static inline void
+force_eval_float (float x)
+{
+  __asm__ __volatile__ ("" : "+w" (x));
+}
+static inline void
+force_eval_double (double x)
+{
+  __asm__ __volatile__ ("" : "+w" (x));
+}
+#else
+static inline void
+force_eval_float (float x)
+{
+  volatile float y = x;
+}
+static inline void
+force_eval_double (double x)
+{
+  volatile double y = x;
+}
+#endif
+
+/* Evaluate an expression as the specified type, normally a type
+   cast should be enough, but compilers implement non-standard
+   excess-precision handling, so when FLT_EVAL_METHOD != 0 then
+   these functions may need to be customized.  */
+static inline float
+eval_as_float (float x)
+{
+  return x;
+}
+static inline double
+eval_as_double (double x)
+{
+  return x;
+}
+
+/* Provide *_finite symbols and some of the glibc hidden symbols
+   so libmathlib can be used with binaries compiled against glibc
+   to interpose math functions with both static and dynamic linking.  */
+#ifndef USE_GLIBC_ABI
+# if __GNUC__
+#   define USE_GLIBC_ABI 1
+# else
+#   define USE_GLIBC_ABI 0
+# endif
+#endif
+
 #ifdef __GNUC__
 # define HIDDEN __attribute__ ((__visibility__ ("hidden")))
 # define NOINLINE __attribute__ ((noinline))
+# define likely(x) __builtin_expect (!!(x), 1)
+# define unlikely(x) __builtin_expect (x, 0)
+# define strong_alias(f, a) \
+  extern __typeof (f) a __attribute__ ((alias (#f)));
+# define hidden_alias(f, a) \
+  extern __typeof (f) a __attribute__ ((alias (#f), visibility ("hidden")));
 #else
 # define HIDDEN
 # define NOINLINE
+# define likely(x) (x)
+# define unlikely(x) (x)
 #endif
 
-HIDDEN float __math_oflowf (unsigned long);
-HIDDEN float __math_uflowf (unsigned long);
-HIDDEN float __math_may_uflowf (unsigned long);
-HIDDEN float __math_divzerof (unsigned long);
+/* Error handling tail calls for special cases, with sign argument.  */
+HIDDEN float __math_oflowf (uint32_t);
+HIDDEN float __math_uflowf (uint32_t);
+HIDDEN float __math_may_uflowf (uint32_t);
+HIDDEN float __math_divzerof (uint32_t);
+HIDDEN double __math_oflow (uint32_t);
+HIDDEN double __math_uflow (uint32_t);
+HIDDEN double __math_may_uflow (uint32_t);
+HIDDEN double __math_divzero (uint32_t);
+/* Error handling using input checking.  */
 HIDDEN float __math_invalidf (float);
+HIDDEN double __math_invalid (double);
+/* Error handling using output checking, only for errno setting.  */
+HIDDEN double __math_check_oflow (double);
+HIDDEN double __math_check_uflow (double);
+
+static inline double
+check_oflow (double x)
+{
+  return WANT_ERRNO ? __math_check_oflow (x) : x;
+}
+
+static inline double
+check_uflow (double x)
+{
+  return WANT_ERRNO ? __math_check_uflow (x) : x;
+}
+
 
 /* Shared between expf, exp2f and powf.  */
 #define EXP2F_TABLE_BITS 5
@@ -190,5 +296,66 @@ extern const struct powf_log2_data
   } tab[1 << POWF_LOG2_TABLE_BITS];
   double poly[POWF_LOG2_POLY_ORDER];
 } __powf_log2_data HIDDEN;
+
+
+#define EXP_TABLE_BITS 7
+#define EXP_POLY_ORDER 5
+/* Use polynomial that is optimized for a wider input range.  This may be
+   needed for good precision in non-nearest rounding and !TOINT_INTRINSICS.  */
+#define EXP_POLY_WIDE 0
+/* Use close to nearest rounding toint when !TOINT_INTRINSICS.  This may be
+   needed for good precision in non-nearest rouning and !EXP_POLY_WIDE.  */
+#define EXP_USE_TOINT_NARROW 0
+#define EXP2_POLY_ORDER 5
+#define EXP2_POLY_WIDE 0
+extern const struct exp_data {
+  double invln2N;
+  double shift;
+  double negln2hiN;
+  double negln2loN;
+  double poly[4]; /* Last four coefficients.  */
+  double exp2_shift;
+  double exp2_poly[EXP2_POLY_ORDER];
+  uint64_t tab[2*(1 << EXP_TABLE_BITS)];
+} __exp_data HIDDEN;
+
+#define LOG_TABLE_BITS 7
+#define LOG_POLY_ORDER 6
+#define LOG_POLY1_ORDER 12
+extern const struct log_data {
+  double ln2hi;
+  double ln2lo;
+  double poly[LOG_POLY_ORDER - 1]; /* First coefficient is 1.  */
+  double poly1[LOG_POLY1_ORDER - 1];
+  struct {double invc, logc;} tab[1 << LOG_TABLE_BITS];
+#if !HAVE_FAST_FMA
+  struct {double chi, clo;} tab2[1 << LOG_TABLE_BITS];
+#endif
+} __log_data HIDDEN;
+
+#define LOG2_TABLE_BITS 6
+#define LOG2_POLY_ORDER 7
+#define LOG2_POLY1_ORDER 11
+extern const struct log2_data {
+  double invln2hi;
+  double invln2lo;
+  double poly[LOG2_POLY_ORDER - 1];
+  double poly1[LOG2_POLY1_ORDER - 1];
+  struct {double invc, logc;} tab[1 << LOG2_TABLE_BITS];
+#if !HAVE_FAST_FMA
+  struct {double chi, clo;} tab2[1 << LOG2_TABLE_BITS];
+#endif
+} __log2_data HIDDEN;
+
+#define POW_LOG_TABLE_BITS 8
+#define POW_LOG_POLY_ORDER 7
+#define POW_LOG_POLY1_ORDER 9
+extern const struct pow_log_data {
+  double ln2hi;
+  double ln2lo;
+  double poly[POW_LOG_POLY_ORDER - 1]; /* First coefficient is 1.  */
+  double poly1[POW_LOG_POLY1_ORDER - 1];
+  struct {double invc, logc;} tab[1 << POW_LOG_TABLE_BITS];
+} __pow_log_data HIDDEN;
 
 #endif

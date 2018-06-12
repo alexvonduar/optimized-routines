@@ -1,22 +1,20 @@
 /*
- *  Single-precision math error handling.
+ * Single-precision math error handling.
  *
- *  Copyright (C) 2017, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2017, Arm Limited.
+ * SPDX-License-Identifier: Apache-2.0
  *
- *  Licensed under the Apache License, Version 2.0 (the "License"); you may
- *  not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *  http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- *
- *  This file is part of the Optimized Routines project
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #include "math_config.h"
@@ -37,14 +35,14 @@ with_errnof (float y, int e)
 
 /* NOINLINE prevents fenv semantics breaking optimizations.  */
 NOINLINE static float
-xflowf (unsigned long sign, float y)
+xflowf (uint32_t sign, float y)
 {
   y = (sign ? -y : y) * y;
   return with_errnof (y, ERANGE);
 }
 
 HIDDEN float
-__math_uflowf (unsigned long sign)
+__math_uflowf (uint32_t sign)
 {
   return xflowf (sign, 0x1p-95f);
 }
@@ -53,23 +51,29 @@ __math_uflowf (unsigned long sign)
 /* Underflows to zero in some non-nearest rounding mode, setting errno
    is valid even if the result is non-zero, but in the subnormal range.  */
 HIDDEN float
-__math_may_uflowf (unsigned long sign)
+__math_may_uflowf (uint32_t sign)
 {
   return xflowf (sign, 0x1.4p-75f);
 }
 #endif
 
 HIDDEN float
-__math_oflowf (unsigned long sign)
+__math_oflowf (uint32_t sign)
 {
   return xflowf (sign, 0x1p97f);
 }
 
-HIDDEN float
-__math_divzerof (unsigned long sign)
+/* NOINLINE prevents fenv semantics breaking optimizations.  */
+NOINLINE static float
+divzerof (float x)
 {
-  float y = 0;
-  return with_errnof ((sign ? -1 : 1) / y, ERANGE);
+  return with_errnof (x / 0.0f, ERANGE);
+}
+
+HIDDEN float
+__math_divzerof (uint32_t sign)
+{
+  return divzerof (sign ? -1.0f : 1.0f);
 }
 
 HIDDEN float
