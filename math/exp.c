@@ -33,6 +33,13 @@
 #define C5 __exp_data.poly[8 - EXP_POLY_ORDER]
 #define C6 __exp_data.poly[9 - EXP_POLY_ORDER]
 
+/* Handle cases that may overflow or underflow when computing the result that
+   is scale*(1+TMP) without intermediate rounding.  The bit representation of
+   scale is in SBITS, however it has a computed exponent that may have
+   overflown into the sign bit so that needs to be adjusted before using it as
+   a double.  (int32_t)KI is the k used in the argument reduction and exponent
+   adjustment of scale, positive k here means the result may overflow and
+   negative k means the result may underflow.  */
 static inline double
 specialcase (double_t tmp, uint64_t sbits, uint64_t ki)
 {
@@ -40,10 +47,10 @@ specialcase (double_t tmp, uint64_t sbits, uint64_t ki)
 
   if ((ki & 0x80000000) == 0)
     {
-      /* k > 0, the exponent of scale might have overflowed by <= 85.  */
-      sbits -= 97ull << 52;
+      /* k > 0, the exponent of scale might have overflowed by <= 460.  */
+      sbits -= 1009ull << 52;
       scale = asdouble (sbits);
-      y = 0x1p97 * (scale + scale * tmp);
+      y = 0x1p1009 * (scale + scale * tmp);
       return check_oflow (y);
     }
   /* k < 0, need special care in the subnormal range.  */
@@ -65,18 +72,21 @@ specialcase (double_t tmp, uint64_t sbits, uint64_t ki)
       if (WANT_ROUNDING && y == 0.0)
 	y = 0.0;
       /* The underflow exception needs to be signaled explicitly.  */
-      force_eval_double (0x1p-1022 * 0x1p-1022);
+      force_eval_double (opt_barrier_double (0x1p-1022) * 0x1p-1022);
     }
   y = 0x1p-1022 * y;
   return check_uflow (y);
 }
 
+/* Top 12 bits of a double (sign and exponent bits).  */
 static inline uint32_t
-top16 (double x)
+top12 (double x)
 {
-  return asuint64 (x) >> 48;
+  return asuint64 (x) >> 52;
 }
 
+/* Computes exp(x+xtail) where |xtail| < 2^-8/N and |xtail| <= |x|.
+   If hastail is 0 then xtail is assumed to be 0 too.  */
 static inline double
 exp_inline (double x, double xtail, int hastail)
 {
@@ -85,18 +95,18 @@ exp_inline (double x, double xtail, int hastail)
   /* double_t for better performance on targets with FLT_EVAL_METHOD==2.  */
   double_t kd, z, r, r2, scale, tail, tmp;
 
-  abstop = top16 (x) & 0x7fff;
-  if (unlikely (abstop - top16 (0x1p-54) >= top16 (704.0) - top16 (0x1p-54)))
+  abstop = top12 (x) & 0x7ff;
+  if (unlikely (abstop - top12 (0x1p-54) >= top12 (512.0) - top12 (0x1p-54)))
     {
-      if (abstop - top16 (0x1p-54) >= 0x80000000)
+      if (abstop - top12 (0x1p-54) >= 0x80000000)
 	/* Avoid spurious underflow for tiny x.  */
 	/* Note: 0 is common input.  */
 	return WANT_ROUNDING ? 1.0 + x : 1.0;
-      if (abstop >= top16 (768.0))
+      if (abstop >= top12 (1024.0))
 	{
 	  if (asuint64 (x) == asuint64 (-INFINITY))
 	    return 0.0;
-	  if (abstop >= top16 (INFINITY))
+	  if (abstop >= top12 (INFINITY))
 	    return 1.0 + x;
 	  if (asuint64 (x) >> 63)
 	    return __math_uflow (0);
@@ -124,30 +134,33 @@ exp_inline (double x, double xtail, int hastail)
   ki = asuint64 (kd);
   kd -= Shift;
 #endif
-  r = x + kd*NegLn2hiN + kd*NegLn2loN;
+  r = x + kd * NegLn2hiN + kd * NegLn2loN;
+  /* The code assumes 2^-200 < |xtail| < 2^-8/N.  */
   if (hastail)
     r += xtail;
   /* 2^(k/N) ~= scale * (1 + tail).  */
-  idx = 2*(ki % N);
+  idx = 2 * (ki % N);
   top = ki << (52 - EXP_TABLE_BITS);
   tail = asdouble (T[idx]);
   /* This is only a valid scale when -1023*N < k < 1024*N.  */
   sbits = T[idx + 1] + top;
   /* exp(x) = 2^(k/N) * exp(r) ~= scale + scale * (tail + exp(r) - 1).  */
   /* Evaluation is optimized assuming superscalar pipelined execution.  */
-  r2 = r*r;
+  r2 = r * r;
   /* Without fma the worst case error is 0.25/N ulp larger.  */
   /* Worst case error is less than 0.5+1.11/N+(abs poly error * 2^53) ulp.  */
 #if EXP_POLY_ORDER == 4
-  tmp = tail + r + r2*C2 + r*r2*(C3 + r*C4);
+  tmp = tail + r + r2 * C2 + r * r2 * (C3 + r * C4);
 #elif EXP_POLY_ORDER == 5
-  tmp = tail + r + r2*(C2 + r*C3) + r2*r2*(C4 + r*C5);
+  tmp = tail + r + r2 * (C2 + r * C3) + r2 * r2 * (C4 + r * C5);
 #elif EXP_POLY_ORDER == 6
-  tmp = tail + r + r2*(0.5 + r*C3) + r2*r2*(C4 + r*C5 + r2*C6);
+  tmp = tail + r + r2 * (0.5 + r * C3) + r2 * r2 * (C4 + r * C5 + r2 * C6);
 #endif
   if (unlikely (abstop == 0))
     return specialcase (tmp, sbits, ki);
   scale = asdouble (sbits);
+  /* Note: tmp == 0 or |tmp| > 2^-200 and scale > 2^-739, so there
+     is no spurious underflow here even without fma.  */
   return scale + scale * tmp;
 }
 

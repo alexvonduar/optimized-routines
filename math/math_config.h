@@ -64,15 +64,23 @@
 #endif
 
 #if HAVE_FAST_ROUND
+/* When set, the roundtoint and converttoint functions are provided with
+   the semantics documented below.  */
 # define TOINT_INTRINSICS 1
 
+/* Round x to nearest int in all rounding modes, ties have to be rounded
+   consistently with converttoint so the results match.  If the result
+   would be outside of [-2^31, 2^31-1] then the semantics is unspecified.  */
 static inline double_t
 roundtoint (double_t x)
 {
   return round (x);
 }
 
-static inline uint64_t
+/* Convert x to nearest int in all rounding modes, ties have to be rounded
+   consistently with roundtoint.  If the result is not representible in an
+   int32_t then the semantics is unspecified.  */
+static inline int32_t
 converttoint (double_t x)
 {
 # if HAVE_FAST_LROUND
@@ -148,8 +156,21 @@ issignaling_inline (double x)
   return 2 * (ix ^ 0x0008000000000000) > 2 * 0x7ff8000000000000ULL;
 }
 
-/* Force the evaluation of a floating-point expression for its side-effect.  */
 #if __aarch64__ && __GNUC__
+/* Prevent the optimization of a floating-point expression.  */
+static inline float
+opt_barrier_float (float x)
+{
+  __asm__ __volatile__ ("" : "+w" (x));
+  return x;
+}
+static inline double
+opt_barrier_double (double x)
+{
+  __asm__ __volatile__ ("" : "+w" (x));
+  return x;
+}
+/* Force the evaluation of a floating-point expression for its side-effect.  */
 static inline void
 force_eval_float (float x)
 {
@@ -161,6 +182,18 @@ force_eval_double (double x)
   __asm__ __volatile__ ("" : "+w" (x));
 }
 #else
+static inline float
+opt_barrier_float (float x)
+{
+  volatile float y = x;
+  return y;
+}
+static inline double
+opt_barrier_double (double x)
+{
+  volatile double y = x;
+  return y;
+}
 static inline void
 force_eval_float (float x)
 {
@@ -215,28 +248,48 @@ eval_as_double (double x)
 # define unlikely(x) (x)
 #endif
 
-/* Error handling tail calls for special cases, with sign argument.  */
+/* Error handling tail calls for special cases, with a sign argument.
+   The sign of the return value is set if the argument is non-zero.  */
+
+/* The result overflows.  */
 HIDDEN float __math_oflowf (uint32_t);
+/* The result underflows to 0 in nearest rounding mode.  */
 HIDDEN float __math_uflowf (uint32_t);
+/* The result underflows to 0 in some directed rounding mode only.  */
 HIDDEN float __math_may_uflowf (uint32_t);
+/* Division by zero.  */
 HIDDEN float __math_divzerof (uint32_t);
+/* The result overflows.  */
 HIDDEN double __math_oflow (uint32_t);
+/* The result underflows to 0 in nearest rounding mode.  */
 HIDDEN double __math_uflow (uint32_t);
+/* The result underflows to 0 in some directed rounding mode only.  */
 HIDDEN double __math_may_uflow (uint32_t);
+/* Division by zero.  */
 HIDDEN double __math_divzero (uint32_t);
+
 /* Error handling using input checking.  */
+
+/* Invalid input unless it is a quiet NaN.  */
 HIDDEN float __math_invalidf (float);
+/* Invalid input unless it is a quiet NaN.  */
 HIDDEN double __math_invalid (double);
+
 /* Error handling using output checking, only for errno setting.  */
+
+/* Check if the result overflowed to infinity.  */
 HIDDEN double __math_check_oflow (double);
+/* Check if the result underflowed to 0.  */
 HIDDEN double __math_check_uflow (double);
 
+/* Check if the result overflowed to infinity.  */
 static inline double
 check_oflow (double x)
 {
   return WANT_ERRNO ? __math_check_oflow (x) : x;
 }
 
+/* Check if the result underflowed to 0.  */
 static inline double
 check_uflow (double x)
 {
@@ -308,7 +361,8 @@ extern const struct powf_log2_data
 #define EXP_USE_TOINT_NARROW 0
 #define EXP2_POLY_ORDER 5
 #define EXP2_POLY_WIDE 0
-extern const struct exp_data {
+extern const struct exp_data
+{
   double invln2N;
   double shift;
   double negln2hiN;
@@ -322,7 +376,8 @@ extern const struct exp_data {
 #define LOG_TABLE_BITS 7
 #define LOG_POLY_ORDER 6
 #define LOG_POLY1_ORDER 12
-extern const struct log_data {
+extern const struct log_data
+{
   double ln2hi;
   double ln2lo;
   double poly[LOG_POLY_ORDER - 1]; /* First coefficient is 1.  */
@@ -336,7 +391,8 @@ extern const struct log_data {
 #define LOG2_TABLE_BITS 6
 #define LOG2_POLY_ORDER 7
 #define LOG2_POLY1_ORDER 11
-extern const struct log2_data {
+extern const struct log2_data
+{
   double invln2hi;
   double invln2lo;
   double poly[LOG2_POLY_ORDER - 1];
@@ -347,15 +403,15 @@ extern const struct log2_data {
 #endif
 } __log2_data HIDDEN;
 
-#define POW_LOG_TABLE_BITS 8
-#define POW_LOG_POLY_ORDER 7
-#define POW_LOG_POLY1_ORDER 9
-extern const struct pow_log_data {
+#define POW_LOG_TABLE_BITS 7
+#define POW_LOG_POLY_ORDER 8
+extern const struct pow_log_data
+{
   double ln2hi;
   double ln2lo;
   double poly[POW_LOG_POLY_ORDER - 1]; /* First coefficient is 1.  */
-  double poly1[POW_LOG_POLY1_ORDER - 1];
-  struct {double invc, logc;} tab[1 << POW_LOG_TABLE_BITS];
+  /* Note: the pad field is unused, but allows slightly faster indexing.  */
+  struct {double invc, pad, logc, logctail;} tab[1 << POW_LOG_TABLE_BITS];
 } __pow_log_data HIDDEN;
 
 #endif

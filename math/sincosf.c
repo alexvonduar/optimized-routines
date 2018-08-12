@@ -26,32 +26,31 @@
 #include "math_config.h"
 #include "sincosf.h"
 
-/* Fast sincosf implementation.  Worst-case ULP is 0.56072, maximum relative
-   error is 0.5303p-23.  A single-step signed range reduction is used for
+/* Fast sincosf implementation.  Worst-case ULP is 0.5607, maximum relative
+   error is 0.5303 * 2^-23.  A single-step range reduction is used for
    small values.  Large inputs have their range reduced using fast integer
-   arithmetic.
-*/
+   arithmetic.  */
 void
 sincosf (float y, float *sinp, float *cosp)
 {
   double x = y;
   double s;
   int n;
-  sincos_t *p = &sincosf_table[0];
+  const sincos_t *p = &__sincosf_table[0];
 
   if (abstop12 (y) < abstop12 (pio4))
     {
       double x2 = x * x;
 
       if (unlikely (abstop12 (y) < abstop12 (0x1p-12f)))
-      {
-	if (unlikely (abstop12 (y) < abstop12 (0x1p-126f)))
-	  /* Force underflow for tiny y.  */
-	  force_eval_float (x2);
-	*sinp = y;
-	*cosp = 1.0f;
-	return;
-      }
+	{
+	  if (unlikely (abstop12 (y) < abstop12 (0x1p-126f)))
+	    /* Force underflow for tiny y.  */
+	    force_eval_float (x2);
+	  *sinp = y;
+	  *cosp = 1.0f;
+	  return;
+	}
 
       sincosf_poly (x, x2, p, 0, sinp, cosp);
     }
@@ -63,7 +62,7 @@ sincosf (float y, float *sinp, float *cosp)
       s = p->sign[n & 3];
 
       if (n & 2)
-	p = &sincosf_table[1];
+	p = &__sincosf_table[1];
 
       sincosf_poly (x * s, x * x, p, n, sinp, cosp);
     }
@@ -78,7 +77,7 @@ sincosf (float y, float *sinp, float *cosp)
       s = p->sign[(n + sign) & 3];
 
       if ((n + sign) & 2)
-	p = &sincosf_table[1];
+	p = &__sincosf_table[1];
 
       sincosf_poly (x * s, x * x, p, n, sinp, cosp);
     }
