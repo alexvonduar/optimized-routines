@@ -2,19 +2,7 @@
  * Double-precision x^y function.
  *
  * Copyright (c) 2018, Arm Limited.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: MIT
  */
 
 #include <math.h>
@@ -256,7 +244,8 @@ exp_inline (double x, double xtail, uint32_t sign_bias)
   return scale + scale * tmp;
 }
 
-/* Returns 0 if not int, 1 if odd int, 2 if even int.  */
+/* Returns 0 if not int, 1 if odd int, 2 if even int.  The argument is
+   the bit representation of a non-zero finite floating-point value.  */
 static inline int
 checkint (uint64_t iy)
 {
